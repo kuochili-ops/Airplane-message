@@ -491,8 +491,8 @@
         }
       });
 
-      // 4. 微幅氣流搖晃與錄影穿越動畫（從右側入場，至布條尾端完全飛出畫面左側才停止並存檔）
-      let overrideX = 0;
+      // 4. 微幅氣流搖晃與錄影穿越動畫
+      let overrideX = 0; // 平時常態停留在 0（畫面中央偏左特寫）
       if (isRecordingSequence) {
         const startX = 4.2;
         const targetX = -6.2; // 飛機推進至左側外，確保布條右端尾巴完全離開畫面視野
