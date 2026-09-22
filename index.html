@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>飛機布條動態客製化</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #3eaaf5;
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+    }
+    #viewer { width: 100%; height: 100%; }
+
+    /* 選單開關按鈕 */
+    #toggleBtn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 20;
+      background: rgba(36, 36, 41, 0.85);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    #toggleBtn:hover { background: #33333d; }
+
+    /* 控制面板 */
+    #controls {
+      position: absolute;
+      top: 65px;
+      right: 16px;
+      width: 310px;
+      background: rgba(36, 36, 41, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 10;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      transition: all 0.3s ease-in-out;
+      transform-origin: top right;
+      max-height: 85vh;
+      overflow-y: auto;
+    }
+
+    #controls.collapsed {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.9) translateY(-10px);
+    }
+
+    h2 { font-size: 1rem; color: #4da6ff; margin-bottom: 4px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 0.8rem; color: #aaa; display: flex; justify-content: space-between; }
+    input[type="text"], input[type="color"] {
+      padding: 8px 10px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: #151518;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+    input[type="color"] { height: 36px; cursor: pointer; padding: 2px; width: 100%; }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0066ff;
+      cursor: pointer;
+    }
+    .btn {
+      background: #0066ff;
+      color: #fff;
+      border: none;
+      padding: 10px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .btn:hover { background: #0052cc; }
+    .btn-green { background: #28a745; }
+    .btn-green:hover { background: #218838; }
+    .btn-purple { background: #6f42c1; }
+    .btn-purple:hover { background: #5a32a3; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewer"></div>
+
+  <button id="toggleBtn">⚙️ 設定選單</button>
+
+  <div id="controls" class="collapsed">
+    <h2>布條與飛行設定</h2>
+    
+    <div class="form-group">
+      <label>中文字訊息</label>
+      <input type="text" id="bannerText" value="恭喜 500 萬會員達成！" placeholder="輸入要顯示的文字..." />
+    </div>
+
+    <div class="form-group">
+      <label>文字顏色</label>
+      <input type="color" id="textColor" value="#ffffff" />
+    </div>
+
+    <div class="form-group">
+      <label>布條背景色</label>
+      <input type="color" id="bgColor" value="#e60012" />
+    </div>
+
+    <div class="form-group">
+      <label>氣流不穩定度 <span id="ampVal">1.0</span></label>
+      <input type="range" id="waveAmp" min="0" max="2.5" step="0.1" value="1.0" />
+    </div>
+
+    <div class="form-group">
+      <label>飛行速度 <span id="speedVal">1.0</span></label>
+      <input type="range" id="waveSpeed" min="0.2" max="2.5" step="0.1" value="1.0" />
+    </div>
+
+    <button id="updateBtn" class="btn">套用設定</button>
+    <button id="recordBtn" class="btn btn-green">🎬 錄影並下載 WebM</button>
+    <button id="shareBtn" class="btn btn-purple">🔗 複製分享連結</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const MODEL_PATH = './sketchfab_5_million_members.glb';
+
+    // 解析 URL 參數初始化 UI 設定
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('text')) document.getElementById('bannerText').value = urlParams.get('text');
+    if (urlParams.has('tc')) document.getElementById('textColor').value = '#' + urlParams.get('tc');
+    if (urlParams.has('bg')) document.getElementById('bgColor').value = '#' + urlParams.get('bg');
+    if (urlParams.has('amp')) {
+      document.getElementById('waveAmp').value = urlParams.get('amp');
+      document.getElementById('ampVal').textContent = urlParams.get('amp');
+    }
+    if (urlParams.has('spd')) {
+      document.getElementById('waveSpeed').value = urlParams.get('spd');
+      document.getElementById('speedVal').textContent = urlParams.get('spd');
+    }
+
+    const container = document.getElementById('viewer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x3eaaf5);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0.6, 0, 5.5);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // 光照
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(10, 20, 15);
+    scene.add(dirLight);
+
+    let mixer = null;
+    let planeModelGroup = new THREE.Group();
+    let propMeshNode = null;
+    let bannerHolderNode = null;
+
+    let customBannerGroup = new THREE.Group();
+    let bannerMeshFront = null;
+    let bannerMeshBack = null;
+    let originalPlaneGeo = null;
+    let cloudsGroup = new THREE.Group();
+
+    // 錄影控制變數
+    let isRecordingSequence = false;
+    let recordingProgress = 0; // 0 to 1
+    let mediaRecorder = null;
+    let recordedChunks = [];
+    let pauseTimer = 0;
+
+    const clock = new THREE.Clock();
+
+    // UI 開關
+    const toggleBtn = document.getElementById('toggleBtn');
+    const controlsMenu = document.getElementById('controls');
+    toggleBtn.addEventListener('click', () => controlsMenu.classList.toggle('collapsed'));
+
+    const waveAmpInput = document.getElementById('waveAmp');
+    const waveSpeedInput = document.getElementById('waveSpeed');
+    waveAmpInput.addEventListener('input', (e) => document.getElementById('ampVal').textContent = e.target.value);
+    waveSpeedInput.addEventListener('input', (e) => document.getElementById('speedVal').textContent = e.target.value);
+
+    // 建立 3D 動態雲朵背景
+    function setupBackgroundClouds() {
+      const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65 });
+      
+      for (let i = 0; i < 14; i++) {
+        const cloud = new THREE.Group();
+        const numPuffs = 3 + Math.floor(Math.random() * 3);
+        for (let j = 0; j < numPuffs; j++) {
+          const puffGeo = new THREE.SphereGeometry(0.3 + Math.random() * 0.4, 8, 8);
+          const puff = new THREE.Mesh(puffGeo, cloudMat);
+          puff.position.set(j * 0.35, Math.random() * 0.2, Math.random() * 0.2);
+          cloud.add(puff);
+        }
+        cloud.position.set(
+          -14 + Math.random() * 28,
+          (Math.random() - 0.5) * 10,
+          -4 - Math.random() * 6
+        );
+        cloudsGroup.add(cloud);
+      }
+      scene.add(cloudsGroup);
+    }
+    setupBackgroundClouds();
+
+    // 生成 Canvas 貼圖
+    function createCustomCanvasTexture(text, textColor, bgColor, isFront) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 2048;
+      canvas.height = 384;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = bgColor;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 12, canvas.width, 12);
+      ctx.fillRect(0, canvas.height - 24, canvas.width, 12);
+
+      ctx.fillStyle = textColor;
+      ctx.font = '900 130px "Microsoft JhengHei", "PingFang TC", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.strokeStyle = '#000000';
+      ctx.lineWidth = 14;
+
+      ctx.save();
+      ctx.translate(canvas.width / 2, canvas.height / 2);
+      if (!isFront) {
+        ctx.scale(-1, 1);
+      }
+      ctx.strokeText(text, 0, 0);
+      ctx.fillText(text, 0, 0);
+      ctx.restore();
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      return texture;
+    }
+
+    // 建立動態 Canvas 布條
+    function setupCustomBanner() {
+      const bannerWidth = 1.8;
+      const bannerHeight = 0.16;
+
+      const planeGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight, 32, 8);
+      planeGeo.translate(bannerWidth / 2, 0, 0); // Anchor 設在最左端
+      originalPlaneGeo = planeGeo.clone();
+
+      const frontMat = new THREE.MeshStandardMaterial({
+        side: THREE.FrontSide,
+        roughness: 0.4,
+        metalness: 0.1
+      });
+      const backMat = new THREE.MeshStandardMaterial({
+        side: THREE.BackSide,
+        roughness: 0.4,
+        metalness: 0.1
+      });
+
+      bannerMeshFront = new THREE.Mesh(planeGeo, frontMat);
+      bannerMeshBack = new THREE.Mesh(planeGeo, backMat);
+
+      customBannerGroup.add(bannerMeshFront);
+      customBannerGroup.add(bannerMeshBack);
+      scene.add(customBannerGroup);
+
+      updateBanner();
+    }
+
+    // 載入 GLB 模型
+    const loader = new GLTFLoader();
+    loader.load(MODEL_PATH, (gltf) => {
+      const model = gltf.scene;
+      planeModelGroup.add(model);
+      scene.add(planeModelGroup);
+
+      // 1. 播放動畫
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+      }
+
+      setupCustomBanner();
+
+      model.traverse((child) => {
+        // 抓取機頭木質螺旋槳
+        if (child.name === 'Object_8' || child.name === 'Object_7' || (child.name.toLowerCase().includes('propeller') && !child.name.toLowerCase().includes('wing'))) {
+          propMeshNode = child;
+        }
+
+        // 隱藏原廠舊布條 Mesh
+        if (child.isMesh && (child.name === 'Object_31' || child.name.toLowerCase().includes('banner'))) {
+          child.visible = false;
+        }
+
+        // 尋找繩架尾端節點
+        if (child.name.includes('Banner_holder') || child.name === 'Object_33') {
+          bannerHolderNode = child;
+        }
+      });
+
+      controls.target.set(0.6, 0, 0);
+      controls.update();
+    });
+
+    // 更新 Canvas 布條內容
+    function updateBanner() {
+      if (!bannerMeshFront || !bannerMeshBack) return;
+      const text = document.getElementById('bannerText').value;
+      const textColor = document.getElementById('textColor').value;
+      const bgColor = document.getElementById('bgColor').value;
+
+      bannerMeshFront.material.map = createCustomCanvasTexture(text, textColor, bgColor, true);
+      bannerMeshBack.material.map = createCustomCanvasTexture(text, textColor, bgColor, false);
+      bannerMeshFront.material.needsUpdate = true;
+      bannerMeshBack.material.needsUpdate = true;
+    }
+
+    document.getElementById('updateBtn').addEventListener('click', updateBanner);
+
+    // 分享複製按鈕邏輯
+    document.getElementById('shareBtn').addEventListener('click', () => {
+      const text = document.getElementById('bannerText').value;
+      const tc = document.getElementById('textColor').value.replace('#', '');
+      const bg = document.getElementById('bgColor').value.replace('#', '');
+      const amp = document.getElementById('waveAmp').value;
+      const spd = document.getElementById('waveSpeed').value;
+
+      const shareUrl = `${window.location.origin}${window.location.pathname}?text=${encodeURIComponent(text)}&tc=${tc}&bg=${bg}&amp=${amp}&spd=${spd}`;
+      const copyContent = `𓃥 白六飛機布條：${text}\n${shareUrl}`;
+
+      if (navigator.share) {
+        navigator.share({
+          title: '白六飛機布條',
+          text: `訊息：${text}`,
+          url: shareUrl
+        }).catch(() => {
+          copyToClipboard(copyContent);
+        });
+      } else {
+        copyToClipboard(copyContent);
+      }
+    });
+
+    function copyToClipboard(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        alert('連結與訊息已複製到剪貼簿！');
+      }).catch(() => {
+        alert('複製失敗，請手動複製。');
+      });
+    }
+
+    // 啟動自動錄影
+    document.getElementById('recordBtn').addEventListener('click', () => {
+      if (isRecordingSequence) return;
+      controlsMenu.classList.add('collapsed');
+
+      const stream = renderer.domElement.captureStream(60);
+      recordedChunks = [];
+      
+      let options = { mimeType: 'video/webm;codecs=vp9' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'video/webm' };
+      }
+
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+      mediaRecorder.onstop = saveRecording;
+
+      mediaRecorder.start();
+      isRecordingSequence = true;
+      recordingProgress = 0;
+      pauseTimer = 0;
+    });
+
+    function saveRecording() {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `white6_airplane_banner_${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    }
+
+    // 視窗 resize
+    window.addEventListener('resize', () => {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    // 主動畫迴圈
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      const amp = parseFloat(waveAmpInput.value);
+      const speed = parseFloat(waveSpeedInput.value);
+
+      // 1. 播放 GLB 動畫
+      if (mixer) {
+        mixer.timeScale = speed;
+        mixer.update(delta);
+      }
+
+      // 2. 木質螺旋槳順暢自轉
+      if (propMeshNode) {
+        propMeshNode.rotateX(delta * 50 * speed);
+      }
+
+      // 3. 背景雲朵：由左向右流動（飛機朝左飛，雲朵向右飄）
+      cloudsGroup.children.forEach(cloud => {
+        cloud.position.x += delta * 2.8 * speed;
+        if (cloud.position.x > 14) {
+          cloud.position.x = -14;
+        }
+      });
+
+      // 4. 微幅氣流搖晃與錄影穿越動畫
+      let overrideX = 0;
+      if (isRecordingSequence) {
+        // 全程由右向左飛行：起點 (飛機於畫面右側特寫) -> 終點 (布條尾端停在中央)
+        const startX = 2.8;
+        const targetX = -2.8;
+
+        if (recordingProgress < 1.0) {
+          recordingProgress += delta * 0.22 * speed;
+          overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(recordingProgress, 1.0));
+        } else {
+          // 抵達終點，靜止 1 秒（讓布條尾端停在中間）後完成錄影
+          overrideX = targetX;
+          pauseTimer += delta;
+          if (pauseTimer >= 1.0) {
+            isRecordingSequence = false;
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+              mediaRecorder.stop();
+            }
+          }
+        }
+      }
+
+      const turbulenceY = Math.sin(time * 2.2 * speed) * 0.04 * amp;
+      const pitch = Math.sin(time * 2.8 * speed) * 0.02 * amp;
+      const roll = Math.cos(time * 2.1 * speed) * 0.03 * amp;
+
+      planeModelGroup.position.set(overrideX, turbulenceY, 0);
+      planeModelGroup.rotation.set(pitch, 0, roll);
+
+      // 5. 布條向後微調 0.05（holderWorldPos.x + 0.18），前緣正好完美卡在黑桿扣環上
+      if (bannerHolderNode && customBannerGroup) {
+        const holderWorldPos = new THREE.Vector3();
+        bannerHolderNode.getWorldPosition(holderWorldPos);
+
+        customBannerGroup.position.set(holderWorldPos.x + 0.18, holderWorldPos.y, holderWorldPos.z);
+        customBannerGroup.rotation.set(pitch * 0.5, 0, roll * 0.5);
+      }
+
+      // 6. Canvas 布條頂點風浪動態
+      if (bannerMeshFront && originalPlaneGeo) {
+        const posAttr = bannerMeshFront.geometry.attributes.position;
+        const origAttr = originalPlaneGeo.attributes.position;
+
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = origAttr.getX(i);
+          const y = origAttr.getY(i);
+          const z = origAttr.getZ(i);
+
+          const wave = Math.sin(time * 7 * speed - x * 3.5) * (x * 0.035 * amp);
+
+          posAttr.setZ(i, z + wave);
+        }
+        posAttr.needsUpdate = true;
+        bannerMeshBack.geometry.attributes.position.copy(posAttr);
+        bannerMeshBack.geometry.attributes.position.needsUpdate = true;
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
