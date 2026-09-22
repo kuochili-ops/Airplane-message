@@ -491,19 +491,19 @@
         }
       });
 
-      // 4. 微幅氣流搖晃與錄影穿越動畫（從右側入場，至布條尾端抵達畫面中央即停止存檔）
+      // 4. 微幅氣流搖晃與錄影穿越動畫（從右側入場，至布條尾端完全飛出畫面左側才停止並存檔）
       let overrideX = 0;
       if (isRecordingSequence) {
         const startX = 4.2;
-        const targetX = -1.98; // 布條尾端（右緣）正好停在畫面中央
+        const targetX = -6.2; // 飛機推進至左側外，確保布條右端尾巴完全離開畫面視野
 
         if (recordingProgress < 1.0) {
-          recordingProgress += delta * 0.22 * speed;
+          recordingProgress += delta * 0.18 * speed;
           overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(recordingProgress, 1.0));
         } else {
           overrideX = targetX;
           pauseTimer += delta;
-          if (pauseTimer >= 1.0) {
+          if (pauseTimer >= 0.5) {
             isRecordingSequence = false;
             if (mediaRecorder && mediaRecorder.state !== 'inactive') {
               mediaRecorder.stop();
