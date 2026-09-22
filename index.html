@@ -224,7 +224,7 @@
 
     const clock = new THREE.Clock();
 
-    // UI 開關與外圍點擊自動收合
+    // UI 開關與外圍點擊/觸碰自動收合
     const toggleBtn = document.getElementById('toggleBtn');
     const controlsMenu = document.getElementById('controls');
 
@@ -237,9 +237,12 @@
       e.stopPropagation();
     });
 
+    // 觸碰/點擊介面外任意位置時收合選單
     window.addEventListener('pointerdown', (e) => {
-      if (!controlsMenu.classList.contains('collapsed') && e.target !== toggleBtn) {
-        controlsMenu.classList.add('collapsed');
+      if (!controlsMenu.classList.contains('collapsed')) {
+        if (!controlsMenu.contains(e.target) && e.target !== toggleBtn) {
+          controlsMenu.classList.add('collapsed');
+        }
       }
     });
 
