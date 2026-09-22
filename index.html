@@ -182,15 +182,13 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    // 手機/桌機 響應式相機距離與目標點校正
+    // 校正視角，讓飛機與布條在手機直螢幕上居中滿版、不留右側空隙
     function updateCameraView() {
       const isPortrait = window.innerWidth < window.innerHeight;
       if (isPortrait) {
-        // 直螢幕（手機）：推遠相機拉廣視野，視角置中
-        camera.position.set(0.2, 0, 8.2);
-        controls.target.set(0.2, 0, 0);
+        camera.position.set(0.9, 0, 7.5);
+        controls.target.set(0.9, 0, 0);
       } else {
-        // 橫螢幕（桌機/平板）：標準視角
         camera.position.set(0.6, 0, 5.5);
         controls.target.set(0.6, 0, 0);
       }
@@ -239,7 +237,6 @@
       e.stopPropagation();
     });
 
-    // 點擊 3D 畫面/選單外任意位置，自動收合選單
     window.addEventListener('pointerdown', (e) => {
       if (!controlsMenu.classList.contains('collapsed') && e.target !== toggleBtn) {
         controlsMenu.classList.add('collapsed');
@@ -347,7 +344,6 @@
       planeModelGroup.add(model);
       scene.add(planeModelGroup);
 
-      // 1. 播放動畫
       if (gltf.animations && gltf.animations.length > 0) {
         mixer = new THREE.AnimationMixer(model);
         gltf.animations.forEach(clip => mixer.clipAction(clip).play());
@@ -356,17 +352,14 @@
       setupCustomBanner();
 
       model.traverse((child) => {
-        // 抓取機頭木質螺旋槳
         if (child.name === 'Object_8' || child.name === 'Object_7' || (child.name.toLowerCase().includes('propeller') && !child.name.toLowerCase().includes('wing'))) {
           propMeshNode = child;
         }
 
-        // 隱藏原廠舊布條 Mesh
         if (child.isMesh && (child.name === 'Object_31' || child.name.toLowerCase().includes('banner'))) {
           child.visible = false;
         }
 
-        // 尋找繩架尾端節點
         if (child.name.includes('Banner_holder') || child.name === 'Object_33') {
           bannerHolderNode = child;
         }
@@ -495,11 +488,11 @@
         }
       });
 
-      // 4. 微幅氣流搖晃與錄影穿越動畫
+      // 4. 微幅氣流搖晃與錄影穿越動畫（從右側入場，至布條尾端抵達畫面中央即停止存檔）
       let overrideX = 0;
       if (isRecordingSequence) {
-        const startX = 2.8;
-        const targetX = -2.8;
+        const startX = 4.2;
+        const targetX = -1.98; // 布條尾端（右緣）正好停在畫面中央
 
         if (recordingProgress < 1.0) {
           recordingProgress += delta * 0.22 * speed;
@@ -523,7 +516,7 @@
       planeModelGroup.position.set(overrideX, turbulenceY, 0);
       planeModelGroup.rotation.set(pitch, 0, roll);
 
-      // 5. 布條位置同步（持位在 holderWorldPos.x + 0.18）
+      // 5. 布條位置動態跟隨
       if (bannerHolderNode && customBannerGroup) {
         const holderWorldPos = new THREE.Vector3();
         bannerHolderNode.getWorldPosition(holderWorldPos);
