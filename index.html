@@ -215,9 +215,10 @@
     let originalPlaneGeo = null;
     let cloudsGroup = new THREE.Group();
 
-    // 錄影控制變數
-    let isRecordingSequence = false;
-    let recordingProgress = 0;
+    // 飛行動畫控制變數 (包含展示模式與錄影模式)
+    let isFlySequence = false;
+    let flyProgress = 0;
+    let isRecording = false;
     let mediaRecorder = null;
     let recordedChunks = [];
     let pauseTimer = 0;
@@ -384,7 +385,16 @@
       bannerMeshBack.material.needsUpdate = true;
     }
 
-    document.getElementById('updateBtn').addEventListener('click', updateBanner);
+    // 啟動飛行過場（純展示模式）
+    function triggerFlySequence() {
+      updateBanner();
+      controlsMenu.classList.add('collapsed');
+      isFlySequence = true;
+      flyProgress = 0;
+      pauseTimer = 0;
+    }
+
+    document.getElementById('updateBtn').addEventListener('click', triggerFlySequence);
 
     // 分享複製按鈕邏輯
     document.getElementById('shareBtn').addEventListener('click', () => {
@@ -420,9 +430,8 @@
 
     // 啟動自動錄影
     document.getElementById('recordBtn').addEventListener('click', () => {
-      if (isRecordingSequence) return;
-      controlsMenu.classList.add('collapsed');
-
+      if (isFlySequence) return;
+      
       const stream = renderer.domElement.captureStream(60);
       recordedChunks = [];
       
@@ -438,9 +447,8 @@
       mediaRecorder.onstop = saveRecording;
 
       mediaRecorder.start();
-      isRecordingSequence = true;
-      recordingProgress = 0;
-      pauseTimer = 0;
+      isRecording = true;
+      triggerFlySequence();
     });
 
     function saveRecording() {
@@ -491,22 +499,23 @@
         }
       });
 
-      // 4. 微幅氣流搖晃與錄影穿越動畫
-      let overrideX = 0; // 平時常態停留在 0（畫面中央偏左特寫）
-      if (isRecordingSequence) {
+      // 4. 微幅氣流搖晃與飛過畫面過場動畫
+      let overrideX = 0;
+      if (isFlySequence) {
         const startX = 4.2;
         const targetX = -6.2; // 飛機推進至左側外，確保布條右端尾巴完全離開畫面視野
 
-        if (recordingProgress < 1.0) {
-          recordingProgress += delta * 0.18 * speed;
-          overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(recordingProgress, 1.0));
+        if (flyProgress < 1.0) {
+          flyProgress += delta * 0.18 * speed;
+          overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(flyProgress, 1.0));
         } else {
           overrideX = targetX;
           pauseTimer += delta;
-          if (pauseTimer >= 0.5) {
-            isRecordingSequence = false;
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+          if (pauseTimer >= 0.3) {
+            isFlySequence = false;
+            if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
               mediaRecorder.stop();
+              isRecording = false;
             }
           }
         }
