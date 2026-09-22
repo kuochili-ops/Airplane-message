@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>飛機布條動態客製化</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>白六航空訊息傳遞</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -13,6 +13,7 @@
       height: 100vh;
       overflow: hidden;
       position: relative;
+      touch-action: manipulation;
     }
     #viewer { width: 100%; height: 100%; }
 
@@ -33,6 +34,7 @@
       align-items: center;
       gap: 6px;
       box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      user-select: none;
     }
     #toggleBtn:hover { background: #33333d; }
 
@@ -42,6 +44,7 @@
       top: 65px;
       right: 16px;
       width: 310px;
+      max-width: calc(100vw - 32px);
       background: rgba(36, 36, 41, 0.92);
       backdrop-filter: blur(8px);
       border: 1px solid rgba(255, 255, 255, 0.2);
@@ -50,11 +53,11 @@
       display: flex;
       flex-direction: column;
       gap: 12px;
-      z-index: 10;
+      z-index: 30;
       box-shadow: 0 8px 24px rgba(0,0,0,0.4);
       transition: all 0.3s ease-in-out;
       transform-origin: top right;
-      max-height: 85vh;
+      max-height: 80vh;
       overflow-y: auto;
     }
 
@@ -170,7 +173,6 @@
     scene.background = new THREE.Color(0x3eaaf5);
 
     const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0.6, 0, 5.5);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -179,6 +181,24 @@
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+
+    // 手機/桌機 響應式相機距離與目標點校正
+    function updateCameraView() {
+      const isPortrait = window.innerWidth < window.innerHeight;
+      if (isPortrait) {
+        // 直螢幕（手機）：推遠相機拉廣視野，視角置中
+        camera.position.set(0.2, 0, 8.2);
+        controls.target.set(0.2, 0, 0);
+      } else {
+        // 橫螢幕（桌機/平板）：標準視角
+        camera.position.set(0.6, 0, 5.5);
+        controls.target.set(0.6, 0, 0);
+      }
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+    updateCameraView();
 
     // 光照
     scene.add(new THREE.AmbientLight(0xffffff, 2.2));
@@ -199,17 +219,32 @@
 
     // 錄影控制變數
     let isRecordingSequence = false;
-    let recordingProgress = 0; // 0 to 1
+    let recordingProgress = 0;
     let mediaRecorder = null;
     let recordedChunks = [];
     let pauseTimer = 0;
 
     const clock = new THREE.Clock();
 
-    // UI 開關
+    // UI 開關與外圍點擊自動收合
     const toggleBtn = document.getElementById('toggleBtn');
     const controlsMenu = document.getElementById('controls');
-    toggleBtn.addEventListener('click', () => controlsMenu.classList.toggle('collapsed'));
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      controlsMenu.classList.toggle('collapsed');
+    });
+
+    controlsMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    // 點擊 3D 畫面/選單外任意位置，自動收合選單
+    window.addEventListener('pointerdown', (e) => {
+      if (!controlsMenu.classList.contains('collapsed') && e.target !== toggleBtn) {
+        controlsMenu.classList.add('collapsed');
+      }
+    });
 
     const waveAmpInput = document.getElementById('waveAmp');
     const waveSpeedInput = document.getElementById('waveSpeed');
@@ -337,8 +372,7 @@
         }
       });
 
-      controls.target.set(0.6, 0, 0);
-      controls.update();
+      updateCameraView();
     });
 
     // 更新 Canvas 布條內容
@@ -427,10 +461,9 @@
       }, 100);
     }
 
-    // 視窗 resize
+    // 視窗 resize 響應式切換
     window.addEventListener('resize', () => {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
+      updateCameraView();
       renderer.setSize(window.innerWidth, window.innerHeight);
     });
 
@@ -454,7 +487,7 @@
         propMeshNode.rotateX(delta * 50 * speed);
       }
 
-      // 3. 背景雲朵：由左向右流動（飛機朝左飛，雲朵向右飄）
+      // 3. 背景雲朵：由左向右流動
       cloudsGroup.children.forEach(cloud => {
         cloud.position.x += delta * 2.8 * speed;
         if (cloud.position.x > 14) {
@@ -465,7 +498,6 @@
       // 4. 微幅氣流搖晃與錄影穿越動畫
       let overrideX = 0;
       if (isRecordingSequence) {
-        // 全程由右向左飛行：起點 (飛機於畫面右側特寫) -> 終點 (布條尾端停在中央)
         const startX = 2.8;
         const targetX = -2.8;
 
@@ -473,7 +505,6 @@
           recordingProgress += delta * 0.22 * speed;
           overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(recordingProgress, 1.0));
         } else {
-          // 抵達終點，靜止 1 秒（讓布條尾端停在中間）後完成錄影
           overrideX = targetX;
           pauseTimer += delta;
           if (pauseTimer >= 1.0) {
@@ -492,7 +523,7 @@
       planeModelGroup.position.set(overrideX, turbulenceY, 0);
       planeModelGroup.rotation.set(pitch, 0, roll);
 
-      // 5. 布條向後微調 0.05（holderWorldPos.x + 0.18），前緣正好完美卡在黑桿扣環上
+      // 5. 布條位置同步（持位在 holderWorldPos.x + 0.18）
       if (bannerHolderNode && customBannerGroup) {
         const holderWorldPos = new THREE.Vector3();
         bannerHolderNode.getWorldPosition(holderWorldPos);
