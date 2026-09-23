@@ -427,10 +427,11 @@
       const forwardVec = new THREE.Vector3(-1, 0, 0);
       forwardVec.applyQuaternion(planeModelGroup.quaternion).normalize();
 
-      // 3. 沿著機頭反方向往後退 18 單位作為起飛點（畫面外）
-      // 沿著機頭正方向往前推進 18 單位作為離場點（畫面外）
-      startWorldPos.copy(basePlanePos).addScaledVector(forwardVec, -18.0);
-      endWorldPos.copy(basePlanePos).addScaledVector(forwardVec, 18.0);
+      // 3. 精簡位移距離，大幅縮短等待時間：
+      // 起飛點：由 -18.0 縮短至 -8.0（畫面右側外剛好看不見的位置，即刻飛入）
+      // 離場點：由 18.0 縮短至 10.0（剛好飛離畫面左側外，即刻結束下載）
+      startWorldPos.copy(basePlanePos).addScaledVector(forwardVec, -8.0);
+      endWorldPos.copy(basePlanePos).addScaledVector(forwardVec, 10.0);
 
       currentPos.copy(startWorldPos);
       planeModelGroup.position.copy(currentPos);
@@ -550,11 +551,12 @@
       let overridePos = basePlanePos.clone();
 
       if (isFlySequence) {
-        const flyInDuration = 4.5 / speed;  // 飛進時間受飛行速度 Slider 控制 (0.01 ~ 1.50)
-        const flyOutDuration = 4.5 / speed; // 飛離時間受飛行速度 Slider 控制 (0.01 ~ 1.50)
+        // 因距離縮短，基準飛行時間同步調優為 2.0 / speed 秒
+        const flyInDuration = 2.0 / speed;  
+        const flyOutDuration = 2.5 / speed; 
 
         if (flyState === 0) {
-          // 階段 0：由畫面外勻速飛進您擺好的指定位置
+          // 階段 0：快速由畫面外勻速飛進您擺好的指定位置
           flyProgress += delta / flyInDuration;
           if (flyProgress >= 1.0) {
             flyProgress = 1.0;
