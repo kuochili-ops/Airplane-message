@@ -138,8 +138,8 @@
     </div>
 
     <div class="form-group">
-      <label>飛行速度 <span id="speedVal">1.0</span></label>
-      <input type="range" id="waveSpeed" min="0.2" max="2.5" step="0.1" value="1.0" />
+      <label>飛行速度 <span id="speedVal">1.00</span></label>
+      <input type="range" id="waveSpeed" min="0.01" max="1.50" step="0.01" value="1.00" />
     </div>
 
     <button id="updateBtn" class="btn">套用設定</button>
@@ -164,8 +164,9 @@
       document.getElementById('ampVal').textContent = urlParams.get('amp');
     }
     if (urlParams.has('spd')) {
-      document.getElementById('waveSpeed').value = urlParams.get('spd');
-      document.getElementById('speedVal').textContent = urlParams.get('spd');
+      const spdVal = parseFloat(urlParams.get('spd')).toFixed(2);
+      document.getElementById('waveSpeed').value = spdVal;
+      document.getElementById('speedVal').textContent = spdVal;
     }
 
     const container = document.getElementById('viewer');
@@ -179,10 +180,20 @@
     renderer.setPixelRatio(window.devicePixelRatio);
     container.appendChild(renderer.domElement);
 
+    // 支援雙指/單指自由操控鏡頭
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
 
-    // 校正視角，讓飛機與布條在手機直螢幕上居中滿版、不留右側空隙
+    controls.enableRotate = true; 
+    controls.enableZoom = true;   
+    controls.enablePan = true;    
+
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN
+    };
+
     function updateCameraView() {
       const isPortrait = window.innerWidth < window.innerHeight;
       if (isPortrait) {
@@ -215,13 +226,20 @@
     let originalPlaneGeo = null;
     let cloudsGroup = new THREE.Group();
 
-    // 飛行動畫控制變數 (包含展示模式與錄影模式)
+    // 飛行動畫三階段控制 (0: 勻速飛進, 1: 滯留3秒, 2: 勻速飛離)
     let isFlySequence = false;
-    let flyProgress = 0;
+    let flyState = 0; 
+    let holdTimer = 0;
+    let flyProgress = 0; 
+    
+    let basePlanePos = new THREE.Vector3();  // 當前實際在畫面上放置的飛機位置
+    let startWorldPos = new THREE.Vector3(); // 順著機頭往後的起飛點
+    let endWorldPos = new THREE.Vector3();   // 順著機頭往前飛的離場點
+    let currentPos = new THREE.Vector3();
+
     let isRecording = false;
     let mediaRecorder = null;
     let recordedChunks = [];
-    let pauseTimer = 0;
 
     const clock = new THREE.Clock();
 
@@ -238,7 +256,6 @@
       e.stopPropagation();
     });
 
-    // 觸碰/點擊介面外任意位置時收合選單
     window.addEventListener('pointerdown', (e) => {
       if (!controlsMenu.classList.contains('collapsed')) {
         if (!controlsMenu.contains(e.target) && e.target !== toggleBtn) {
@@ -249,8 +266,8 @@
 
     const waveAmpInput = document.getElementById('waveAmp');
     const waveSpeedInput = document.getElementById('waveSpeed');
-    waveAmpInput.addEventListener('input', (e) => document.getElementById('ampVal').textContent = e.target.value);
-    waveSpeedInput.addEventListener('input', (e) => document.getElementById('speedVal').textContent = e.target.value);
+    waveAmpInput.addEventListener('input', (e) => document.getElementById('ampVal').textContent = parseFloat(e.target.value).toFixed(1));
+    waveSpeedInput.addEventListener('input', (e) => document.getElementById('speedVal').textContent = parseFloat(e.target.value).toFixed(2));
 
     // 建立 3D 動態雲朵背景
     function setupBackgroundClouds() {
@@ -283,16 +300,13 @@
       canvas.height = 384;
       const ctx = canvas.getContext('2d');
 
-      // 背景色滿版
       ctx.fillStyle = bgColor;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // 上下白線邊框
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 8, canvas.width, 10);
       ctx.fillRect(0, canvas.height - 18, canvas.width, 10);
 
-      // 極限字級計算：左右預留 60px 邊界，最大字級限制 240px，確保高高度與寬度均填滿
       const maxTextWidth = canvas.width - 120;
       let fontSize = 240;
       const fontStack = '"Microsoft JhengHei", "PingFang TC", "Noto Sans TC", sans-serif';
@@ -309,7 +323,7 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
       ctx.strokeStyle = '#000000';
-      ctx.lineWidth = Math.max(8, Math.floor(fontSize * 0.11)); // 自動等比例黑邊
+      ctx.lineWidth = Math.max(8, Math.floor(fontSize * 0.11));
 
       ctx.save();
       ctx.translate(canvas.width / 2, canvas.height / 2);
@@ -331,7 +345,7 @@
       const bannerHeight = 0.16;
 
       const planeGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight, 32, 8);
-      planeGeo.translate(bannerWidth / 2, 0, 0); // Anchor 設在最左端
+      planeGeo.translate(bannerWidth / 2, 0, 0); 
       originalPlaneGeo = planeGeo.clone();
 
       const frontMat = new THREE.MeshStandardMaterial({
@@ -399,13 +413,32 @@
       bannerMeshBack.material.needsUpdate = true;
     }
 
-    // 啟動飛行過場（純展示模式）
+    // 觸發「飛機由畫面外飛進您排好的位置 ➔ 停留3秒 ➔ 飛離」腳本
     function triggerFlySequence() {
       updateBanner();
       controlsMenu.classList.add('collapsed');
+
+      // 1. 以飛機「當前實際在 3D 空間中的位置」作為停滯點
+      if (!isFlySequence) {
+        basePlanePos.copy(planeModelGroup.position);
+      }
+
+      // 2. 計算機頭朝向 (Forward Vector)
+      const forwardVec = new THREE.Vector3(-1, 0, 0);
+      forwardVec.applyQuaternion(planeModelGroup.quaternion).normalize();
+
+      // 3. 沿著機頭反方向往後退 18 單位作為起飛點（畫面外）
+      // 沿著機頭正方向往前推進 18 單位作為離場點（畫面外）
+      startWorldPos.copy(basePlanePos).addScaledVector(forwardVec, -18.0);
+      endWorldPos.copy(basePlanePos).addScaledVector(forwardVec, 18.0);
+
+      currentPos.copy(startWorldPos);
+      planeModelGroup.position.copy(currentPos);
+
       isFlySequence = true;
+      flyState = 0; // 階段 0: 飛進
       flyProgress = 0;
-      pauseTimer = 0;
+      holdTimer = 0;
     }
 
     document.getElementById('updateBtn').addEventListener('click', triggerFlySequence);
@@ -416,7 +449,7 @@
       const tc = document.getElementById('textColor').value.replace('#', '');
       const bg = document.getElementById('bgColor').value.replace('#', '');
       const amp = document.getElementById('waveAmp').value;
-      const spd = document.getElementById('waveSpeed').value;
+      const spd = parseFloat(document.getElementById('waveSpeed').value).toFixed(2);
 
       const shareUrl = `${window.location.origin}${window.location.pathname}?text=${encodeURIComponent(text)}&tc=${tc}&bg=${bg}&amp=${amp}&spd=${spd}`;
       const copyContent = `𓃥 白六飛機布條：${text}\n${shareUrl}`;
@@ -500,12 +533,12 @@
         mixer.update(delta);
       }
 
-      // 2. 木質螺旋槳順暢自轉
+      // 2. 木質螺旋槳自轉
       if (propMeshNode) {
         propMeshNode.rotateX(delta * 50 * speed);
       }
 
-      // 3. 背景雲朵：由左向右流動
+      // 3. 背景雲朵流動
       cloudsGroup.children.forEach(cloud => {
         cloud.position.x += delta * 2.8 * speed;
         if (cloud.position.x > 14) {
@@ -513,24 +546,48 @@
         }
       });
 
-      // 4. 微幅氣流搖晃與飛過畫面過場動畫
-      let overrideX = 0;
-      if (isFlySequence) {
-        const startX = 4.2;
-        const targetX = -6.2; // 飛機推進至左側外，確保布條右端尾巴完全離開畫面視野
+      // 4. 飛機本體順姿態航向運鏡邏輯
+      let overridePos = basePlanePos.clone();
 
-        if (flyProgress < 1.0) {
-          flyProgress += delta * 0.18 * speed;
-          overrideX = THREE.MathUtils.lerp(startX, targetX, Math.min(flyProgress, 1.0));
-        } else {
-          overrideX = targetX;
-          pauseTimer += delta;
-          if (pauseTimer >= 0.3) {
+      if (isFlySequence) {
+        const flyInDuration = 4.5 / speed;  // 飛進時間受飛行速度 Slider 控制 (0.01 ~ 1.50)
+        const flyOutDuration = 4.5 / speed; // 飛離時間受飛行速度 Slider 控制 (0.01 ~ 1.50)
+
+        if (flyState === 0) {
+          // 階段 0：由畫面外勻速飛進您擺好的指定位置
+          flyProgress += delta / flyInDuration;
+          if (flyProgress >= 1.0) {
+            flyProgress = 1.0;
+            currentPos.copy(basePlanePos);
+            overridePos.copy(basePlanePos);
+            flyState = 1; // 抵達擺好的位置，開始滯留 3 秒特寫！
+            holdTimer = 0;
+          } else {
+            currentPos.lerpVectors(startWorldPos, basePlanePos, flyProgress);
+            overridePos.copy(currentPos);
+          }
+        } else if (flyState === 1) {
+          // 階段 1：精準滯留在您排好的拍攝位置，特寫滿 3.0 秒
+          overridePos.copy(basePlanePos);
+          holdTimer += delta;
+          if (holdTimer >= 3.0) {
+            flyState = 2; // 滿 3 秒，飛離畫面
+            flyProgress = 0;
+          }
+        } else if (flyState === 2) {
+          // 階段 2：由擺好的位置勻速飛離至畫面外
+          flyProgress += delta / flyOutDuration;
+          if (flyProgress >= 1.0) {
             isFlySequence = false;
+            overridePos.copy(basePlanePos);
+
             if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
               mediaRecorder.stop();
               isRecording = false;
             }
+          } else {
+            currentPos.lerpVectors(basePlanePos, endWorldPos, flyProgress);
+            overridePos.copy(currentPos);
           }
         }
       }
@@ -539,7 +596,7 @@
       const pitch = Math.sin(time * 2.8 * speed) * 0.02 * amp;
       const roll = Math.cos(time * 2.1 * speed) * 0.03 * amp;
 
-      planeModelGroup.position.set(overrideX, turbulenceY, 0);
+      planeModelGroup.position.set(overridePos.x, overridePos.y + turbulenceY, overridePos.z);
       planeModelGroup.rotation.set(pitch, 0, roll);
 
       // 5. 布條位置動態跟隨
