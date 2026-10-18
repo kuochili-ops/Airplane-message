@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>白六航空訊息傳遞</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #3eaaf5;
+      color: #fff;
+      height: 100vh;
+      overflow: hidden;
+      position: relative;
+      touch-action: manipulation;
+    }
+    #viewer { width: 100%; height: 100%; }
+
+    /* 選單開關按鈕 */
+    #toggleBtn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 20;
+      background: rgba(36, 36, 41, 0.85);
+      color: #fff;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      padding: 10px 14px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: bold;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      user-select: none;
+    }
+    #toggleBtn:hover { background: #33333d; }
+
+    /* 控制面板 */
+    #controls {
+      position: absolute;
+      top: 65px;
+      right: 16px;
+      width: 310px;
+      max-width: calc(100vw - 32px);
+      background: rgba(36, 36, 41, 0.92);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 12px;
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      z-index: 30;
+      box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+      transition: all 0.3s ease-in-out;
+      transform-origin: top right;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+
+    #controls.collapsed {
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.9) translateY(-10px);
+    }
+
+    h2 { font-size: 1rem; color: #4da6ff; margin-bottom: 4px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    label { font-size: 0.8rem; color: #aaa; display: flex; justify-content: space-between; }
+    input[type="range"] {
+      width: 100%;
+      accent-color: #0066ff;
+      cursor: pointer;
+    }
+    .btn {
+      background: #0066ff;
+      color: #fff;
+      border: none;
+      padding: 10px;
+      border-radius: 6px;
+      font-weight: bold;
+      cursor: pointer;
+      margin-top: 4px;
+    }
+    .btn:hover { background: #0052cc; }
+    .btn-green { background: #28a745; }
+    .btn-green:hover { background: #218838; }
+  </style>
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="viewer"></div>
+
+  <button id="toggleBtn">⚙️ 設定選單</button>
+
+  <div id="controls" class="collapsed">
+    <h2>布條與飛行設定</h2>
+    
+    <div class="form-group">
+      <label>氣流不穩定度 <span id="ampVal">1.0</span></label>
+      <input type="range" id="waveAmp" min="0" max="2.5" step="0.1" value="1.0" />
+    </div>
+
+    <div class="form-group">
+      <label>飛行速度 <span id="speedVal">1.00</span></label>
+      <input type="range" id="waveSpeed" min="0.01" max="1.50" step="0.01" value="1.00" />
+    </div>
+
+    <button id="flyBtn" class="btn">🚀 重新飛入畫面</button>
+    <button id="recordBtn" class="btn btn-green">🎬 錄影並下載 WebM</button>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+    const MODEL_PATH = './sketchfab_5_million_members.glb';
+    const BANNER_IMAGE_PATH = './Wave banner.jpeg';
+
+    const container = document.getElementById('viewer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x3eaaf5);
+
+    const camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 1000);
+
+    const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    container.appendChild(renderer.domElement);
+
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.enableRotate = true; 
+    controls.enableZoom = true;   
+    controls.enablePan = true;    
+    controls.touches = {
+      ONE: THREE.TOUCH.ROTATE,
+      TWO: THREE.TOUCH.DOLLY_PAN
+    };
+
+    function updateCameraView() {
+      const isPortrait = window.innerWidth < window.innerHeight;
+      if (isPortrait) {
+        camera.position.set(0.9, 0, 7.5);
+        controls.target.set(0.9, 0, 0);
+      } else {
+        camera.position.set(0.6, 0, 5.5);
+        controls.target.set(0.6, 0, 0);
+      }
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      controls.update();
+    }
+    updateCameraView();
+
+    scene.add(new THREE.AmbientLight(0xffffff, 2.2));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.5);
+    dirLight.position.set(10, 20, 15);
+    scene.add(dirLight);
+
+    let mixer = null;
+    let planeModelGroup = new THREE.Group();
+    let propMeshNode = null;
+    let bannerHolderNode = null;
+
+    let customBannerGroup = new THREE.Group();
+    let bannerMeshFront = null;
+    let bannerMeshBack = null;
+    let originalPlaneGeo = null;
+    let cloudsGroup = new THREE.Group();
+
+    let isFlySequence = false;
+    let flyState = 0; 
+    let holdTimer = 0;
+    let flyProgress = 0; 
+    
+    let basePlanePos = new THREE.Vector3();  
+    let startWorldPos = new THREE.Vector3(); 
+    let endWorldPos = new THREE.Vector3();   
+    let currentPos = new THREE.Vector3();
+
+    let isRecording = false;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    const clock = new THREE.Clock();
+
+    const toggleBtn = document.getElementById('toggleBtn');
+    const controlsMenu = document.getElementById('controls');
+
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      controlsMenu.classList.toggle('collapsed');
+    });
+
+    controlsMenu.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    window.addEventListener('pointerdown', (e) => {
+      if (!controlsMenu.classList.contains('collapsed')) {
+        if (!controlsMenu.contains(e.target) && e.target !== toggleBtn) {
+          controlsMenu.classList.add('collapsed');
+        }
+      }
+    });
+
+    const waveAmpInput = document.getElementById('waveAmp');
+    const waveSpeedInput = document.getElementById('waveSpeed');
+    waveAmpInput.addEventListener('input', (e) => document.getElementById('ampVal').textContent = parseFloat(e.target.value).toFixed(1));
+    waveSpeedInput.addEventListener('input', (e) => document.getElementById('speedVal').textContent = parseFloat(e.target.value).toFixed(2));
+
+    function setupBackgroundClouds() {
+      const cloudMat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.65 });
+      for (let i = 0; i < 14; i++) {
+        const cloud = new THREE.Group();
+        const numPuffs = 3 + Math.floor(Math.random() * 3);
+        for (let j = 0; j < numPuffs; j++) {
+          const puffGeo = new THREE.SphereGeometry(0.3 + Math.random() * 0.4, 8, 8);
+          const puff = new THREE.Mesh(puffGeo, cloudMat);
+          puff.position.set(j * 0.35, Math.random() * 0.2, Math.random() * 0.2);
+          cloud.add(puff);
+        }
+        cloud.position.set(
+          -14 + Math.random() * 28,
+          (Math.random() - 0.5) * 10,
+          -4 - Math.random() * 6
+        );
+        cloudsGroup.add(cloud);
+      }
+      scene.add(cloudsGroup);
+    }
+    setupBackgroundClouds();
+
+    function setupCustomBanner() {
+      // 針對直式圖片（長條狀），我們將幾何維持橫向延展，但透過貼圖旋轉讓直排文字轉為橫向順著飄帶顯示
+      const bannerWidth = 3.0;
+      const bannerHeight = 0.5;
+
+      const planeGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight, 32, 8);
+      planeGeo.translate(bannerWidth / 2, 0, 0); 
+      originalPlaneGeo = planeGeo.clone();
+
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(BANNER_IMAGE_PATH, (texture) => {
+        texture.colorSpace = THREE.SRGBColorSpace;
+        texture.wrapS = THREE.ClampToEdgeWrapping;
+        texture.wrapT = THREE.ClampToEdgeWrapping;
+
+        // 將直式圖片旋轉 90 度，讓它順著橫向飄帶展開
+        texture.center.set(0.5, 0.5);
+        texture.rotation = Math.PI / 2; // 若方向相反請改為 -Math.PI / 2
+
+        const frontMat = new THREE.MeshStandardMaterial({
+          map: texture,
+          side: THREE.FrontSide,
+          roughness: 0.4,
+          metalness: 0.1
+        });
+        
+        const backMat = new THREE.MeshStandardMaterial({
+          map: texture,
+          side: THREE.BackSide,
+          roughness: 0.4,
+          metalness: 0.1
+        });
+
+        bannerMeshFront = new THREE.Mesh(planeGeo, frontMat);
+        bannerMeshBack = new THREE.Mesh(planeGeo, backMat);
+
+        customBannerGroup.add(bannerMeshFront);
+        customBannerGroup.add(bannerMeshBack);
+      });
+
+      scene.add(customBannerGroup);
+    }
+
+    const loader = new GLTFLoader();
+    loader.load(MODEL_PATH, (gltf) => {
+      const model = gltf.scene;
+      planeModelGroup.add(model);
+      scene.add(planeModelGroup);
+
+      if (gltf.animations && gltf.animations.length > 0) {
+        mixer = new THREE.AnimationMixer(model);
+        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+      }
+
+      setupCustomBanner();
+
+      model.traverse((child) => {
+        if (child.name === 'Object_8' || child.name === 'Object_7' || (child.name.toLowerCase().includes('propeller') && !child.name.toLowerCase().includes('wing'))) {
+          propMeshNode = child;
+        }
+
+        if (child.isMesh && (child.name === 'Object_31' || child.name.toLowerCase().includes('banner'))) {
+          child.visible = false;
+        }
+
+        if (child.name.includes('Banner_holder') || child.name === 'Object_33') {
+          bannerHolderNode = child;
+        }
+      });
+
+      updateCameraView();
+    });
+
+    function triggerFlySequence() {
+      controlsMenu.classList.add('collapsed');
+
+      if (!isFlySequence) {
+        basePlanePos.copy(planeModelGroup.position);
+      }
+
+      const forwardVec = new THREE.Vector3(-1, 0, 0);
+      forwardVec.applyQuaternion(planeModelGroup.quaternion).normalize();
+
+      startWorldPos.copy(basePlanePos).addScaledVector(forwardVec, -3.5);
+      endWorldPos.copy(basePlanePos).addScaledVector(forwardVec, 4.5);
+
+      currentPos.copy(startWorldPos);
+      planeModelGroup.position.copy(currentPos);
+
+      isFlySequence = true;
+      flyState = 0; 
+      flyProgress = 0;
+      holdTimer = 0;
+    }
+
+    document.getElementById('flyBtn').addEventListener('click', triggerFlySequence);
+
+    document.getElementById('recordBtn').addEventListener('click', () => {
+      if (isFlySequence) return;
+      
+      const stream = renderer.domElement.captureStream(60);
+      recordedChunks = [];
+      
+      let options = { mimeType: 'video/webm;codecs=vp9' };
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        options = { mimeType: 'video/webm' };
+      }
+
+      mediaRecorder = new MediaRecorder(stream, options);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+      mediaRecorder.onstop = saveRecording;
+
+      mediaRecorder.start();
+      isRecording = true;
+      triggerFlySequence();
+    });
+
+    function saveRecording() {
+      const blob = new Blob(recordedChunks, { type: 'video/webm' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `wave_banner_airplane_${Date.now()}.webm`;
+      document.body.appendChild(a);
+      a.click();
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      }, 100);
+    }
+
+    window.addEventListener('resize', () => {
+      updateCameraView();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      const delta = clock.getDelta();
+      const time = clock.getElapsedTime();
+
+      const amp = parseFloat(waveAmpInput.value);
+      const speed = parseFloat(waveSpeedInput.value);
+
+      if (mixer) {
+        mixer.timeScale = speed;
+        mixer.update(delta);
+      }
+
+      if (propMeshNode) {
+        propMeshNode.rotateX(delta * 50 * speed);
+      }
+
+      cloudsGroup.children.forEach(cloud => {
+        cloud.position.x += delta * 2.8 * speed;
+        if (cloud.position.x > 14) {
+          cloud.position.x = -14;
+        }
+      });
+
+      let overridePos = basePlanePos.clone();
+
+      if (isFlySequence) {
+        const flyInDuration = 0.8 / speed;  
+        const flyOutDuration = 0.9 / speed; 
+
+        if (flyState === 0) {
+          flyProgress += delta / flyInDuration;
+          if (flyProgress >= 1.0) {
+            flyProgress = 1.0;
+            currentPos.copy(basePlanePos);
+            overridePos.copy(basePlanePos);
+            flyState = 1; 
+            holdTimer = 0;
+          } else {
+            currentPos.lerpVectors(startWorldPos, basePlanePos, flyProgress);
+            overridePos.copy(currentPos);
+          }
+        } else if (flyState === 1) {
+          overridePos.copy(basePlanePos);
+          holdTimer += delta;
+          if (holdTimer >= 3.0) {
+            flyState = 2; 
+            flyProgress = 0;
+          }
+        } else if (flyState === 2) {
+          flyProgress += delta / flyOutDuration;
+          if (flyProgress >= 1.0) {
+            isFlySequence = false;
+            overridePos.copy(basePlanePos);
+
+            if (isRecording && mediaRecorder && mediaRecorder.state !== 'inactive') {
+              mediaRecorder.stop();
+              isRecording = false;
+            }
+          } else {
+            currentPos.lerpVectors(basePlanePos, endWorldPos, flyProgress);
+            overridePos.copy(currentPos);
+          }
+        }
+      }
+
+      const turbulenceY = Math.sin(time * 2.2 * speed) * 0.04 * amp;
+      const pitch = Math.sin(time * 2.8 * speed) * 0.02 * amp;
+      const roll = Math.cos(time * 2.1 * speed) * 0.03 * amp;
+
+      planeModelGroup.position.set(overridePos.x, overridePos.y + turbulenceY, overridePos.z);
+      planeModelGroup.rotation.set(pitch, 0, roll);
+
+      if (bannerHolderNode && customBannerGroup) {
+        const holderWorldPos = new THREE.Vector3();
+        bannerHolderNode.getWorldPosition(holderWorldPos);
+
+        customBannerGroup.position.set(holderWorldPos.x + 0.18, holderWorldPos.y, holderWorldPos.z);
+        customBannerGroup.rotation.set(pitch * 0.5, 0, roll * 0.5);
+      }
+
+      if (bannerMeshFront && originalPlaneGeo) {
+        const posAttr = bannerMeshFront.geometry.attributes.position;
+        const origAttr = originalPlaneGeo.attributes.position;
+
+        for (let i = 0; i < posAttr.count; i++) {
+          const x = origAttr.getX(i);
+          const z = origAttr.getZ(i);
+
+          const wave = Math.sin(time * 7 * speed - x * 3.5) * (x * 0.035 * amp);
+
+          posAttr.setZ(i, z + wave);
+        }
+        posAttr.needsUpdate = true;
+        
+        if (bannerMeshBack && bannerMeshBack.geometry) {
+          bannerMeshBack.geometry.attributes.position.copy(posAttr);
+          bannerMeshBack.geometry.attributes.position.needsUpdate = true;
+        }
+      }
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+  </script>
+</body>
+</html>
