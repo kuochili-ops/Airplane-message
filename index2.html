@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>白六航空訊息傳遞</title>
+  <title>白六航空訊息傳遞 - 雙面文字修正版</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -126,7 +126,7 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
     const MODEL_PATH = './sketchfab_5_million_members.glb';
-    const BANNER_IMAGE_PATH = './Wave banner.jpeg';
+    const BANNER_IMAGE_PATH = './Wavebanner.jpg';
 
     const container = document.getElementById('viewer');
     const scene = new THREE.Scene();
@@ -244,47 +244,92 @@
     }
     setupBackgroundClouds();
 
+    function createFallbackTexture() {
+      const canvas = document.createElement('canvas');
+      canvas.width = 100;
+      canvas.height = 1000;
+      const ctx = canvas.getContext('2d');
+
+      ctx.fillStyle = '#ff5500';
+      ctx.fillRect(0, 0, 100, 1000);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(20, 0, 60, 1000);
+
+      ctx.fillStyle = '#000000';
+      ctx.font = 'bold 42px sans-serif';
+      ctx.textAlign = 'center';
+      ['洋', '流', '備', '份'].forEach((text, i) => {
+        ctx.fillText(text, 50, 200 + i * 200);
+      });
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      texture.center.set(0.5, 0.5);
+      texture.rotation = Math.PI / 2;
+      return texture;
+    }
+
     function setupCustomBanner() {
-      // 針對直式圖片（長條狀），我們將幾何維持橫向延展，但透過貼圖旋轉讓直排文字轉為橫向順著飄帶顯示
-      const bannerWidth = 3.0;
-      const bannerHeight = 0.5;
+      const bannerWidth = 3.2;
+      const bannerHeight = 0.35;
 
       const planeGeo = new THREE.PlaneGeometry(bannerWidth, bannerHeight, 32, 8);
       planeGeo.translate(bannerWidth / 2, 0, 0); 
       originalPlaneGeo = planeGeo.clone();
 
-      const textureLoader = new THREE.TextureLoader();
-      textureLoader.load(BANNER_IMAGE_PATH, (texture) => {
-        texture.colorSpace = THREE.SRGBColorSpace;
-        texture.wrapS = THREE.ClampToEdgeWrapping;
-        texture.wrapT = THREE.ClampToEdgeWrapping;
-
-        // 將直式圖片旋轉 90 度，讓它順著橫向飄帶展開
-        texture.center.set(0.5, 0.5);
-        texture.rotation = Math.PI / 2; // 若方向相反請改為 -Math.PI / 2
-
-        const frontMat = new THREE.MeshStandardMaterial({
-          map: texture,
-          side: THREE.FrontSide,
-          roughness: 0.4,
-          metalness: 0.1
-        });
-        
-        const backMat = new THREE.MeshStandardMaterial({
-          map: texture,
-          side: THREE.BackSide,
-          roughness: 0.4,
-          metalness: 0.1
-        });
-
-        bannerMeshFront = new THREE.Mesh(planeGeo, frontMat);
-        bannerMeshBack = new THREE.Mesh(planeGeo, backMat);
-
-        customBannerGroup.add(bannerMeshFront);
-        customBannerGroup.add(bannerMeshBack);
+      const fallbackTexture = createFallbackTexture();
+      
+      // 正面與背面材質分開管理
+      const frontMat = new THREE.MeshBasicMaterial({
+        map: fallbackTexture,
+        side: THREE.FrontSide
+      });
+      
+      const backMat = new THREE.MeshBasicMaterial({
+        map: fallbackTexture.clone(),
+        side: THREE.BackSide
       });
 
+      bannerMeshFront = new THREE.Mesh(planeGeo, frontMat);
+      bannerMeshBack = new THREE.Mesh(planeGeo, backMat);
+
+      customBannerGroup.add(bannerMeshFront);
+      customBannerGroup.add(bannerMeshBack);
       scene.add(customBannerGroup);
+
+      const textureLoader = new THREE.TextureLoader();
+      textureLoader.load(
+        BANNER_IMAGE_PATH,
+        (realTexture) => {
+          console.log("✅ 成功載入 Wavebanner.jpg 圖片！");
+          
+          // 正面貼圖設定
+          realTexture.colorSpace = THREE.SRGBColorSpace;
+          realTexture.wrapS = THREE.ClampToEdgeWrapping;
+          realTexture.wrapT = THREE.ClampToEdgeWrapping;
+          realTexture.center.set(0.5, 0.5);
+          realTexture.rotation = Math.PI / 2;
+
+          bannerMeshFront.material.map = realTexture;
+          bannerMeshFront.material.needsUpdate = true;
+
+          // 💡 背面貼圖設定：複製一份並進行水平翻轉（repeat.x = -1），修復鏡像字
+          const backTexture = realTexture.clone();
+          backTexture.colorSpace = THREE.SRGBColorSpace;
+          backTexture.wrapS = THREE.ClampToEdgeWrapping;
+          backTexture.wrapT = THREE.ClampToEdgeWrapping;
+          backTexture.center.set(0.5, 0.5);
+          backTexture.rotation = Math.PI / 2;
+          backTexture.repeat.x = -1; // 水平翻轉
+
+          bannerMeshBack.material.map = backTexture;
+          bannerMeshBack.material.needsUpdate = true;
+        },
+        undefined,
+        (err) => {
+          console.warn("⚠️ 無法載入 Wavebanner.jpg，顯示 Canvas 備份貼圖。", err);
+        }
+      );
     }
 
     const loader = new GLTFLoader();
