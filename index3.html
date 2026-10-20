@@ -1,0 +1,625 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>洋流貨櫃 船尾貨櫃向內微調定位系統</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans">
+
+  <header class="bg-slate-800 border-b border-slate-700 p-4 shadow-lg">
+    <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-4">
+      <h1 class="text-xl font-bold text-amber-400 flex items-center gap-2">
+        <span>🚢</span> 洋流貨櫃 船尾貨櫃向內微調定位系統
+      </h1>
+      <div class="flex flex-wrap gap-2">
+        <label class="cursor-pointer bg-slate-700 hover:bg-slate-600 text-slate-200 px-3 py-1.5 rounded-lg text-sm transition shadow flex items-center gap-1">
+          <span>📁 選擇 GLB 船隻模型</span>
+          <input type="file" id="fileInput" accept=".glb,.gltf" class="hidden">
+        </label>
+        <label class="cursor-pointer bg-sky-700 hover:bg-sky-600 text-slate-100 px-3 py-1.5 rounded-lg text-sm transition shadow flex items-center gap-1 text-xs">
+          <span>🖼️ 變更貼圖</span>
+          <input type="file" id="imgInput" accept="image/*" class="hidden">
+        </label>
+      </div>
+    </div>
+  </header>
+
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+    <!-- 3D 視圖區 -->
+    <div class="lg:col-span-2 bg-slate-800/50 border border-slate-700 rounded-xl relative overflow-hidden flex flex-col h-[550px] lg:h-auto">
+      <div id="canvasContainer" class="w-full h-full flex-1"></div>
+      
+      <!-- 狀態提示蓋板 -->
+      <div id="dropZone" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/85 backdrop-blur-sm transition-opacity duration-300 p-4 text-center">
+        <p id="statusMsg" class="text-lg text-slate-300 mb-2 font-medium">微調船尾貨櫃向內位置中...</p>
+        <p id="subStatusMsg" class="text-sm text-slate-500">請稍候</p>
+      </div>
+
+      <!-- 動畫劇態提示蓋板 -->
+      <div id="animBadge" class="hidden absolute top-4 left-4 bg-amber-500/90 text-slate-900 font-bold px-3 py-1.5 rounded-full text-xs shadow-lg animate-pulse flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-red-600 animate-ping"></span>
+        <span id="animStatusText">🎬 劇本航行：船隻駛入中場...</span>
+      </div>
+    </div>
+
+    <!-- 右側控制面板 -->
+    <div class="bg-slate-800/50 border border-slate-700 rounded-xl p-4 flex flex-col justify-between space-y-4">
+      <div class="space-y-4">
+        <h2 class="text-lg font-semibold text-sky-400 pb-2 border-b border-slate-700 flex items-center gap-2">
+          <span>⚙️</span> 劇本控制與甲板配置
+        </h2>
+
+        <!-- 航向與劇本控制區 -->
+        <div class="bg-slate-900/90 p-3 rounded-lg border border-sky-500/50 space-y-3">
+          <div class="text-xs text-sky-300 font-bold flex items-center gap-1">
+            <span>🎬 劇本自動航行與錄影</span>
+          </div>
+
+          <div class="flex items-center justify-between text-xs bg-slate-800/80 p-2 rounded">
+            <span class="text-slate-300 font-medium">航行方向</span>
+            <select id="headingSelect" class="bg-slate-700 text-amber-300 px-2 py-1 rounded border border-slate-600 focus:outline-none">
+              <option value="right">從左向右駛（船頭朝右）</option>
+              <option value="left">從右向左駛（船頭朝左）</option>
+            </select>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button id="btnPlayScript" class="bg-sky-600 hover:bg-sky-500 text-white font-medium py-2 rounded-lg text-xs shadow transition flex items-center justify-center gap-1">
+              <span>▶️ 播放劇本動畫</span>
+            </button>
+            <button id="btnRecordScript" class="bg-red-600 hover:bg-red-500 text-white font-medium py-2 rounded-lg text-xs shadow transition flex items-center justify-center gap-1">
+              <span>🔴 錄影劇本 (webm)</span>
+            </button>
+          </div>
+          <p class="text-[11px] text-slate-400">船頭朝前 ➔ 駛入中場 ➔ 停留 3 秒 ➔ 順向駛離 ➔ 復位</p>
+        </div>
+
+        <div class="space-y-3 text-xs">
+          <div class="bg-slate-900/80 p-2.5 rounded border border-amber-500/50 space-y-1">
+            <div class="text-amber-300 font-bold">🎯 甲板位置微調設定</div>
+            <div class="text-slate-300">• <b>船頭貨櫃 (右側甲板)</b>：定位於 +10.0m</div>
+            <div class="text-slate-300">• <b>船尾貨櫃 (左側甲板)</b>：向內拉回至 -21.0m，精準收納於甲板內</div>
+          </div>
+
+          <!-- 船頭貨櫃 (右側甲板) 位置 -->
+          <div class="bg-slate-900/80 p-2.5 rounded border border-slate-700 space-y-1">
+            <div class="flex justify-between text-yellow-300 font-bold">
+              <span>船頭貨櫃起點 (Bow Section)</span>
+              <span id="frontGapVal">+10.0 米</span>
+            </div>
+            <input type="range" id="frontGapRange" min="2" max="30" step="0.5" value="10.0" class="w-full accent-yellow-500">
+          </div>
+
+          <!-- 船尾貨櫃 (左側甲板) 向內微調距離 -->
+          <div class="bg-slate-900/80 p-2.5 rounded border border-slate-700 space-y-1">
+            <div class="flex justify-between text-yellow-300 font-bold">
+              <span>船尾貨櫃起點 (Stern Clear)</span>
+              <span id="backGapVal">-21.0 米</span>
+            </div>
+            <input type="range" id="backGapRange" min="-40" max="-10" step="0.5" value="-21.0" class="w-full accent-yellow-500">
+          </div>
+
+          <!-- 前後單區貨櫃排數 -->
+          <div class="bg-slate-900/80 p-2.5 rounded border border-slate-700 space-y-1">
+            <div class="flex justify-between text-amber-300 font-bold">
+              <span>前後區域排數 (Rows per side)</span>
+              <span id="rowsVal">5 排</span>
+            </div>
+            <input type="range" id="rowsRange" min="2" max="8" step="1" value="5" class="w-full accent-amber-500">
+          </div>
+
+          <!-- 長邊圖片並列張數 -->
+          <div class="bg-slate-900/80 p-2.5 rounded border border-slate-700 space-y-1">
+            <div class="flex justify-between text-sky-300 font-bold">
+              <span>長邊圖片並列張數 (Repeat X)</span>
+              <span id="repeatVal">4 張</span>
+            </div>
+            <input type="range" id="repeatRange" min="1" max="8" step="1" value="4" class="w-full accent-sky-500">
+          </div>
+
+          <!-- 海浪搖晃強度 -->
+          <div class="bg-slate-900/80 p-2.5 rounded border border-slate-700 space-y-1">
+            <div class="flex justify-between text-teal-300 font-bold">
+              <span>海浪搖晃強度 (Wave Intensity)</span>
+              <span id="waveVal">1.0x</span>
+            </div>
+            <input type="range" id="waveRange" min="0" max="3" step="0.1" value="1.0" class="w-full accent-teal-500">
+          </div>
+        </div>
+      </div>
+
+      <div>
+        <button id="btnReload" class="w-full bg-slate-700 hover:bg-slate-600 text-white font-medium py-2 rounded-lg text-sm shadow transition">
+          🔄 重新渲染畫面
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const container = document.getElementById('canvasContainer');
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x0a1128);
+
+    const waterGeometry = new THREE.PlaneGeometry(600, 600, 32, 32);
+    const waterMaterial = new THREE.MeshStandardMaterial({ 
+      color: 0x0284c7, 
+      roughness: 0.1, 
+      metalness: 0.8
+    });
+    const water = new THREE.Mesh(waterGeometry, waterMaterial);
+    water.rotation.x = -Math.PI / 2;
+    water.position.y = -5.5; 
+    scene.add(water);
+
+    const camera = new THREE.PerspectiveCamera(45, container.clientWidth / container.clientHeight, 0.1, 1000);
+    camera.position.set(45, 30, 45);
+
+    const renderer = new THREE.WebGLRenderer({ 
+      antialias: true, 
+      alpha: true,
+      logarithmicDepthBuffer: true,
+      preserveDrawingBuffer: true
+    });
+    renderer.setSize(container.clientWidth, container.clientHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    container.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.9));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.3);
+    dirLight.position.set(20, 30, 20);
+    scene.add(dirLight);
+
+    const shipTrajectoryGroup = new THREE.Group();
+    scene.add(shipTrajectoryGroup);
+
+    const shipHeadingGroup = new THREE.Group();
+    shipTrajectoryGroup.add(shipHeadingGroup);
+
+    const vesselGroup = new THREE.Group();
+    shipHeadingGroup.add(vesselGroup);
+
+    let currentShip = null;
+    let waveContainersGroup = new THREE.Group();
+    vesselGroup.add(waveContainersGroup);
+
+    // 破浪粒子
+    const particleCount = 150;
+    const particleGeo = new THREE.BufferGeometry();
+    const particlePositions = new Float32Array(particleCount * 3);
+    const particleVelocities = [];
+
+    for (let i = 0; i < particleCount; i++) {
+      particlePositions[i * 3] = 35 + (Math.random() - 0.5) * 4;
+      particlePositions[i * 3 + 1] = -4.5 + Math.random() * 1.5;
+      particlePositions[i * 3 + 2] = (Math.random() - 0.5) * 8;
+
+      particleVelocities.push({
+        x: 0.1 + Math.random() * 0.15,
+        y: 0.05 + Math.random() * 0.1,
+        z: (Math.random() - 0.5) * 0.2
+      });
+    }
+
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(particlePositions, 3));
+    const particleMat = new THREE.PointsMaterial({
+      color: 0xe0f2fe,
+      size: 0.6,
+      transparent: true,
+      opacity: 0.7
+    });
+    const particles = new THREE.Points(particleGeo, particleMat);
+    vesselGroup.add(particles);
+
+    function createFallbackTexture() {
+      const cvs = document.createElement('canvas');
+      cvs.width = 512;
+      cvs.height = 256;
+      const ctx = cvs.getContext('2d');
+
+      ctx.fillStyle = '#ea580c';
+      ctx.fillRect(0, 0, 512, 256);
+
+      ctx.fillStyle = '#000000';
+      ctx.fillRect(0, 0, 512, 35);
+      ctx.fillRect(0, 221, 512, 35);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 20px sans-serif';
+      ctx.fillText('20261128   20261128   20261128', 30, 25);
+      ctx.fillText('20261128   20261128   20261128', 30, 246);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 60, 512, 136);
+
+      ctx.fillStyle = '#111111';
+      ctx.font = '900 110px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('洋 流', 256, 128);
+
+      const tex = new THREE.CanvasTexture(cvs);
+      return tex;
+    }
+
+    let decalMatPos = new THREE.MeshBasicMaterial({ 
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4
+    });
+
+    let decalMatNeg = new THREE.MeshBasicMaterial({ 
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -4,
+      polygonOffsetUnits: -4
+    });
+
+    const textureLoader = new THREE.TextureLoader();
+    let activeTexture = createFallbackTexture();
+
+    textureLoader.load('IMG_0128.png', (tex) => {
+      activeTexture = tex;
+      renderContainers();
+    }, undefined, () => {
+      textureLoader.load('Wavebanner.jpg', (tex) => {
+        activeTexture = tex;
+        renderContainers();
+      });
+    });
+
+    document.getElementById('imgInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) {
+        const url = URL.createObjectURL(file);
+        textureLoader.load(url, (tex) => {
+          activeTexture = tex;
+          renderContainers();
+        });
+      }
+    });
+
+    function updateTextureMapping() {
+      if (!activeTexture) return;
+
+      const repeatCount = parseInt(document.getElementById('repeatRange').value);
+
+      const texPos = activeTexture.clone();
+      texPos.wrapS = THREE.RepeatWrapping;
+      texPos.wrapT = THREE.ClampToEdgeWrapping;
+      texPos.rotation = 0;
+      texPos.repeat.set(repeatCount, 1);
+      texPos.needsUpdate = true;
+      decalMatPos.map = texPos;
+      decalMatPos.needsUpdate = true;
+
+      const texNeg = activeTexture.clone();
+      texNeg.wrapS = THREE.RepeatWrapping;
+      texNeg.wrapT = THREE.ClampToEdgeWrapping;
+      texNeg.rotation = 0;
+      texNeg.repeat.set(repeatCount, 1);
+      texNeg.needsUpdate = true;
+      decalMatNeg.map = texNeg;
+      decalMatNeg.needsUpdate = true;
+    }
+
+    const baseContainerMat = new THREE.MeshStandardMaterial({ color: 0x334155, roughness: 0.5 });
+    const topOrangeMat = new THREE.MeshStandardMaterial({ color: 0xea580c, roughness: 0.4 });
+    const boxMaterials = [baseContainerMat, baseContainerMat, topOrangeMat, baseContainerMat, baseContainerMat, baseContainerMat];
+
+    const containerGeo = new THREE.BoxGeometry(2.4, 2.6, 12.0);
+    const decalGeo = new THREE.PlaneGeometry(12.0, 2.6);
+
+    const headingSelect = document.getElementById('headingSelect');
+    const repeatRange = document.getElementById('repeatRange');
+    const rowsRange = document.getElementById('rowsRange');
+    const waveRange = document.getElementById('waveRange');
+    const frontGapRange = document.getElementById('frontGapRange');
+    const backGapRange = document.getElementById('backGapRange');
+
+    function createBannerContainer() {
+      const containerMesh = new THREE.Mesh(containerGeo, boxMaterials);
+
+      const decalPos = new THREE.Mesh(decalGeo, decalMatPos);
+      decalPos.position.set(1.23, 0, 0);
+      decalPos.rotation.y = Math.PI / 2;
+      containerMesh.add(decalPos);
+
+      const decalNeg = new THREE.Mesh(decalGeo, decalMatNeg);
+      decalNeg.position.set(-1.23, 0, 0);
+      decalNeg.rotation.y = -Math.PI / 2;
+      containerMesh.add(decalNeg);
+
+      return containerMesh;
+    }
+
+    function renderContainers() {
+      updateTextureMapping();
+
+      const repeatCount = parseInt(repeatRange.value);
+      const rows = parseInt(rowsRange.value);
+      const frontOffset = parseFloat(frontGapRange.value); // 船頭方向 (+X)
+      const backOffset = parseFloat(backGapRange.value);   // 船尾方向 (-X)
+      const posY = -1.5;
+
+      document.getElementById('repeatVal').textContent = repeatCount + ' 張';
+      document.getElementById('rowsVal').textContent = rows + ' 排';
+      document.getElementById('frontGapVal').textContent = '+' + frontOffset.toFixed(1) + ' 米';
+      document.getElementById('backGapVal').textContent = backOffset.toFixed(1) + ' 米';
+
+      waveContainersGroup.clear();
+
+      const columns = [-2.5, -1.0, 1.0, 2.5]; 
+
+      // 1. 船頭貨櫃區（右側平坦甲板 +X）
+      const frontStartX = frontOffset;
+      for (let r = 0; r < rows; r++) {
+        const posX = frontStartX + r * 3.15;
+        columns.forEach(posZ => {
+          for (let l = 0; l < 2; l++) {
+            const mesh = createBannerContainer();
+            mesh.rotation.y = Math.PI / 2;
+            mesh.position.set(posX, posY + 1.3 + l * 2.65, posZ);
+            waveContainersGroup.add(mesh);
+          }
+        });
+      }
+
+      // 2. 船尾貨櫃區（左側甲板 -X）：向內調整至 -21.0 米，服貼在船尾甲板上
+      const backStartX = backOffset;
+      for (let r = 0; r < rows; r++) {
+        const posX = backStartX - r * 3.15;
+        columns.forEach(posZ => {
+          for (let l = 0; l < 2; l++) {
+            const mesh = createBannerContainer();
+            mesh.rotation.y = Math.PI / 2;
+            mesh.position.set(posX, posY + 1.3 + l * 2.65, posZ);
+            waveContainersGroup.add(mesh);
+          }
+        });
+      }
+    }
+
+    [repeatRange, rowsRange, frontGapRange, backGapRange].forEach(input => {
+      input.addEventListener('input', renderContainers);
+    });
+
+    waveRange.addEventListener('input', (e) => {
+      document.getElementById('waveVal').textContent = parseFloat(e.target.value).toFixed(1) + 'x';
+    });
+
+    document.getElementById('btnReload').addEventListener('click', renderContainers);
+
+    // 劇本與錄影
+    let isScriptRunning = false;
+    let scriptStartTime = 0;
+    let mediaRecorder = null;
+    let recordedChunks = [];
+
+    const btnPlayScript = document.getElementById('btnPlayScript');
+    const btnRecordScript = document.getElementById('btnRecordScript');
+    const animBadge = document.getElementById('animBadge');
+    const animStatusText = document.getElementById('animStatusText');
+
+    const ENTER_DURATION = 3.5;  
+    const PAUSE_DURATION = 3.0;  
+    const EXIT_DURATION = 3.5;   
+    const RESET_DURATION = 2.5;  
+    const TOTAL_SCRIPT_TIME = ENTER_DURATION + PAUSE_DURATION + EXIT_DURATION + RESET_DURATION;
+
+    const ENTRY_OFFSET = 120; 
+
+    function triggerScriptAnimation(isRecording = false) {
+      if (isScriptRunning) return;
+
+      isScriptRunning = true;
+      scriptStartTime = clock.getElapsedTime();
+      animBadge.classList.remove('hidden');
+
+      if (isRecording) startRecording();
+    }
+
+    btnPlayScript.addEventListener('click', () => triggerScriptAnimation(false));
+    btnRecordScript.addEventListener('click', () => triggerScriptAnimation(true));
+
+    function startRecording() {
+      recordedChunks = [];
+      const stream = renderer.domElement.captureStream(60);
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'video/webm;codecs=vp9' });
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) recordedChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Ocean_Container_Ship_FineTuned_${Date.now()}.webm`;
+        a.click();
+      };
+
+      mediaRecorder.start();
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+      }
+    }
+
+    let clock = new THREE.Clock();
+
+    function animate() {
+      requestAnimationFrame(animate);
+
+      const time = clock.getElapsedTime();
+      const waveMult = parseFloat(waveRange.value);
+
+      const isHeadingRight = headingSelect.value === 'right';
+      shipHeadingGroup.rotation.y = isHeadingRight ? 0 : Math.PI;
+
+      const startX = isHeadingRight ? -ENTRY_OFFSET : ENTRY_OFFSET;
+      const endX = isHeadingRight ? ENTRY_OFFSET : -ENTRY_OFFSET;
+
+      if (isScriptRunning) {
+        const elapsed = time - scriptStartTime;
+
+        if (elapsed < ENTER_DURATION) {
+          const progress = elapsed / ENTER_DURATION;
+          const easeProgress = 1 - Math.pow(1 - progress, 3);
+          shipTrajectoryGroup.position.x = startX * (1 - easeProgress);
+          animStatusText.textContent = "🎬 劇本航行：船隻駛入中場...";
+
+        } else if (elapsed < ENTER_DURATION + PAUSE_DURATION) {
+          shipTrajectoryGroup.position.x = 0;
+          const remain = Math.ceil((ENTER_DURATION + PAUSE_DURATION) - elapsed);
+          animStatusText.textContent = `🎬 劇本航行：中場停留特寫 (${remain}s)...`;
+
+        } else if (elapsed < ENTER_DURATION + PAUSE_DURATION + EXIT_DURATION) {
+          const exitElapsed = elapsed - (ENTER_DURATION + PAUSE_DURATION);
+          const progress = exitElapsed / EXIT_DURATION;
+          const easeProgress = Math.pow(progress, 3);
+          shipTrajectoryGroup.position.x = endX * easeProgress;
+          animStatusText.textContent = "🎬 劇本航行：順向駛離畫面...";
+
+        } else if (elapsed < TOTAL_SCRIPT_TIME) {
+          const resetElapsed = elapsed - (ENTER_DURATION + PAUSE_DURATION + EXIT_DURATION);
+          const progress = resetElapsed / RESET_DURATION;
+          const easeProgress = 1 - Math.pow(1 - progress, 2);
+          shipTrajectoryGroup.position.x = startX * (1 - easeProgress);
+          animStatusText.textContent = "🎬 劇本航行：復位重回中場...";
+
+        } else {
+          shipTrajectoryGroup.position.x = 0;
+          isScriptRunning = false;
+          animBadge.classList.add('hidden');
+          stopRecording();
+        }
+      } else {
+        shipTrajectoryGroup.position.x = 0;
+      }
+
+      vesselGroup.position.y = Math.sin(time * 1.5) * 0.25 * waveMult;
+      vesselGroup.rotation.z = Math.sin(time * 1.2) * 0.025 * waveMult;
+      vesselGroup.rotation.x = Math.cos(time * 1.0) * 0.015 * waveMult;
+
+      const positions = particleGeo.attributes.position.array;
+      for (let i = 0; i < particleCount; i++) {
+        positions[i * 3] += particleVelocities[i].x * (1 + waveMult * 0.5);
+        positions[i * 3 + 1] += particleVelocities[i].y;
+        positions[i * 3 + 2] += particleVelocities[i].z;
+
+        if (positions[i * 3] > 45 || positions[i * 3 + 1] > -2) {
+          positions[i * 3] = 32 + (Math.random() - 0.5) * 3;
+          positions[i * 3 + 1] = -4.8;
+          positions[i * 3 + 2] = (Math.random() - 0.5) * 7;
+        }
+      }
+      particleGeo.attributes.position.needsUpdate = true;
+
+      controls.update();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    window.addEventListener('resize', () => {
+      camera.aspect = container.clientWidth / container.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(container.clientWidth, container.clientHeight);
+    });
+
+    window.addEventListener('DOMContentLoaded', () => {
+      loadModelFromUrl('container_ship.glb');
+    });
+
+    const fileInput = document.getElementById('fileInput');
+    const dropZone = document.getElementById('dropZone');
+    const statusMsg = document.getElementById('statusMsg');
+
+    fileInput.addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (file) loadGLTFFile(file);
+    });
+
+    function loadModelFromUrl(url) {
+      statusMsg.textContent = "自動載入 container_ship.glb 中...";
+      const loader = new THREE.GLTFLoader();
+      loader.load(url, (gltf) => {
+        setupLoadedModel(gltf.scene);
+      }, undefined, () => {
+        statusMsg.textContent = "請選擇 GLB 檔案";
+      });
+    }
+
+    function loadGLTFFile(file) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const loader = new THREE.GLTFLoader();
+        loader.parse(e.target.result, '', (gltf) => {
+          setupLoadedModel(gltf.scene);
+        });
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function setupLoadedModel(modelScene) {
+      if (currentShip) vesselGroup.remove(currentShip);
+      currentShip = modelScene;
+      vesselGroup.add(currentShip);
+
+      currentShip.traverse((child) => {
+        if (child.isMesh) {
+          const name = (child.name || '').toLowerCase();
+          
+          if (child.material) {
+            if (Array.isArray(child.material)) {
+              child.material.forEach(mat => {
+                mat.transparent = false;
+                mat.opacity = 1.0;
+                mat.depthWrite = true;
+                mat.needsUpdate = true;
+              });
+            } else {
+              child.material.transparent = false;
+              child.material.opacity = 1.0;
+              child.material.depthWrite = true;
+              child.material.needsUpdate = true;
+            }
+          }
+
+          if (!name.includes('hull') && !name.includes('deck') && !name.includes('bridge') && !name.includes('water')) {
+            child.visible = false;
+          }
+        }
+      });
+
+      const box = new THREE.Box3().setFromObject(currentShip);
+      const center = box.getCenter(new THREE.Vector3());
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z);
+      
+      currentShip.position.sub(center);
+      camera.position.set(maxDim * 0.8, maxDim * 0.5, maxDim * 0.8);
+      controls.target.set(0, 0, 0);
+
+      renderContainers();
+
+      dropZone.classList.add('opacity-0', 'pointer-events-none');
+    }
+  </script>
+</body>
+</html>
